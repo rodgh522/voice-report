@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.env
+.venv/
+venv/
+*.m4a
+*.wav
+*.mp3
+*.flac
+*.ogg
+.ruff_cache/
+.pytest_cache/
