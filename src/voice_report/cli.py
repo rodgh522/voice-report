@@ -22,11 +22,25 @@ app = typer.Typer(
 console = Console()
 
 
+@app.callback()
+def main():
+    """
+    Voice Report CLI
+    """
+
+
+@app.command()
+def version():
+    """Show the version and exit."""
+    from voice_report import __version__
+    console.print(f"voice-report version: {__version__}")
+
+
 @app.command()
 def convert(
-    audio_file: Annotated[
+    input_file: Annotated[
         Path,
-        typer.Argument(help="Path to the audio file (.m4a, .wav, .mp3)"),
+        typer.Argument(help="Path to the input file (audio or .txt transcript)"),
     ],
     output: Annotated[
         Optional[Path],
@@ -59,7 +73,7 @@ def convert(
     gemini_model: Annotated[
         str,
         typer.Option("--gemini-model", help="Gemini model for report generation"),
-    ] = "gemini-2.0-flash",
+    ] = "gemini-2.5-flash",
     device: Annotated[
         str,
         typer.Option("--device", "-d", help="Compute device: cuda, cpu"),
@@ -78,23 +92,30 @@ def convert(
     ] = False,
 ) -> None:
     """Convert a voice recording into a meeting report."""
+    is_text_input = input_file.suffix.lower() == ".txt"
+
     if prompt and template:
         console.print("[red]Error: --prompt and --template are mutually exclusive.[/red]")
         raise typer.Exit(code=1)
 
-    # Validate audio file
-    try:
-        validate_audio_file(audio_file)
-    except (FileNotFoundError, ValueError) as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(code=1)
+    if is_text_input:
+        if not input_file.exists() or not input_file.is_file():
+            console.print(f"[red]Error: Transcript file not found: {input_file}[/red]")
+            raise typer.Exit(code=1)
+    else:
+        # Validate audio file
+        try:
+            validate_audio_file(input_file)
+        except (FileNotFoundError, ValueError) as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise typer.Exit(code=1)
 
-    if not check_ffmpeg():
-        console.print(
-            "[red]Error: ffmpeg is not installed.[/red]\n"
-            "Install with: brew install ffmpeg (macOS) or apt install ffmpeg (Ubuntu)"
-        )
-        raise typer.Exit(code=1)
+        if not check_ffmpeg():
+            console.print(
+                "[red]Error: ffmpeg is not installed.[/red]\n"
+                "Install with: brew install ffmpeg (macOS) or apt install ffmpeg (Ubuntu)"
+            )
+            raise typer.Exit(code=1)
 
     settings = Settings()
 
@@ -107,7 +128,7 @@ def convert(
         )
         raise typer.Exit(code=1)
 
-    if not no_diarize and not settings.hf_token:
+    if not is_text_input and not no_diarize and not settings.hf_token:
         console.print(
             "[yellow]Warning: HF_TOKEN not set. Skipping speaker diarization.[/yellow]\n"
             "To enable diarization, get a token at: https://huggingface.co/settings/tokens\n"
@@ -122,18 +143,33 @@ def convert(
 
         logging.basicConfig(level=logging.DEBUG)
 
-    # Set output path
+    # Set output paths
     if output is None:
-        output = audio_file.with_suffix(".txt" if transcript_only else ".md")
+        output_dir = Path("result") / input_file.stem
+        output_dir.mkdir(parents=True, exist_ok=True)
+        txt_out = output_dir / f"{input_file.stem}.txt"
+        md_out = output_dir / f"{input_file.stem}.md"
+    else:
+        if output.is_dir() or not output.suffix:
+            output.mkdir(parents=True, exist_ok=True)
+            txt_out = output / f"{input_file.stem}.txt"
+            md_out = output / f"{input_file.stem}.md"
+        else:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            txt_out = output.with_suffix(".txt")
+            md_out = output.with_suffix(".md")
 
-    # Show audio info
-    try:
-        duration = get_audio_duration(audio_file)
-        minutes = int(duration // 60)
-        seconds = int(duration % 60)
-        console.print(f"Audio: {audio_file.name} ({minutes}m {seconds}s)")
-    except Exception:
-        console.print(f"Audio: {audio_file.name}")
+    if is_text_input:
+        console.print(f"Transcript: {input_file.name}")
+    else:
+        # Show audio info
+        try:
+            duration = get_audio_duration(input_file)
+            minutes = int(duration // 60)
+            seconds = int(duration % 60)
+            console.print(f"Audio: {input_file.name} ({minutes}m {seconds}s)")
+        except Exception:
+            console.print(f"Audio: {input_file.name}")
 
     speaker_map = _parse_speaker_map(speakers) if speakers else None
 
@@ -142,27 +178,31 @@ def convert(
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        # Step 1: Transcribe
-        task = progress.add_task("Transcribing audio...", total=None)
-        transcript_result = transcribe_audio(
-            audio_path=audio_file,
-            model_size=model,
-            language=language,
-            device=device,
-            diarize=not no_diarize,
-            hf_token=settings.hf_token,
-        )
-        progress.update(task, completed=True, description="Transcription complete")
+        if is_text_input:
+            transcript_text = input_file.read_text(encoding="utf-8")
+        else:
+            # Step 1: Transcribe
+            task = progress.add_task("Transcribing audio...", total=None)
+            transcript_result = transcribe_audio(
+                audio_path=input_file,
+                model_size=model,
+                language=language,
+                device=device,
+                diarize=not no_diarize,
+                hf_token=settings.hf_token,
+            )
+            progress.update(task, completed=True, description="Transcription complete")
 
-        if not transcript_result.segments:
-            console.print("[yellow]No speech detected in audio file.[/yellow]")
-            raise typer.Exit(code=0)
+            if not transcript_result.segments:
+                console.print("[yellow]No speech detected in audio file.[/yellow]")
+                raise typer.Exit(code=0)
 
-        if transcript_only:
-            text = transcript_result.to_text(speaker_map=speaker_map)
-            output.write_text(text, encoding="utf-8")
-            console.print(f"\n[green]Transcript saved to {output}[/green]")
-            return
+            transcript_text = transcript_result.to_text(speaker_map=speaker_map)
+            txt_out.write_text(transcript_text, encoding="utf-8")
+            console.print(f"[green]Transcript saved to {txt_out}[/green]")
+
+            if transcript_only:
+                return
 
         # Step 2: Generate report
         task = progress.add_task("Generating meeting report...", total=None)
@@ -176,8 +216,11 @@ def convert(
             except FileNotFoundError as e:
                 console.print(f"[red]Error: {e}[/red]")
                 raise typer.Exit(code=1)
-
-        transcript_text = transcript_result.to_text(speaker_map=speaker_map)
+        else:
+            try:
+                system_prompt = load_template("default")
+            except FileNotFoundError:
+                pass
 
         try:
             report = generate_report(
@@ -188,16 +231,12 @@ def convert(
             )
         except Exception as e:
             console.print(f"[red]Gemini API error: {e}[/red]")
-            console.print("[yellow]Saving transcript as fallback...[/yellow]")
-            fallback = audio_file.with_suffix(".txt")
-            fallback.write_text(transcript_text, encoding="utf-8")
-            console.print(f"Transcript saved to {fallback}")
             raise typer.Exit(code=1)
 
         progress.update(task, completed=True, description="Report generated")
 
-    output.write_text(report, encoding="utf-8")
-    console.print(f"\n[green]Report saved to {output}[/green]")
+    md_out.write_text(report, encoding="utf-8")
+    console.print(f"[green]Report saved to {md_out}[/green]")
 
 
 def _parse_speaker_map(raw: str) -> dict[str, str]:

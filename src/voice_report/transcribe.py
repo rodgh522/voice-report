@@ -3,6 +3,26 @@
 import gc
 from pathlib import Path
 
+# --- Fallback/Monkeypatch for huggingface_hub >= 0.23.0 ---
+import huggingface_hub
+
+_original_hf_hub_download = huggingface_hub.hf_hub_download
+_original_snapshot_download = huggingface_hub.snapshot_download
+
+def _patched_hf_hub_download(*args, **kwargs):
+    if "use_auth_token" in kwargs:
+        kwargs["token"] = kwargs.pop("use_auth_token")
+    return _original_hf_hub_download(*args, **kwargs)
+
+def _patched_snapshot_download(*args, **kwargs):
+    if "use_auth_token" in kwargs:
+        kwargs["token"] = kwargs.pop("use_auth_token")
+    return _original_snapshot_download(*args, **kwargs)
+
+huggingface_hub.hf_hub_download = _patched_hf_hub_download
+huggingface_hub.snapshot_download = _patched_snapshot_download
+# ----------------------------------------------------------
+
 import whisperx
 
 from voice_report.models import Segment, TranscriptResult, Word
@@ -57,7 +77,8 @@ def transcribe_audio(
 
     # 3. Diarize (speaker identification)
     if diarize and hf_token:
-        diarize_model = whisperx.DiarizationPipeline(
+        from whisperx.diarize import DiarizationPipeline
+        diarize_model = DiarizationPipeline(
             use_auth_token=hf_token,
             device=device,
         )

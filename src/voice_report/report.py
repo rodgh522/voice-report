@@ -18,7 +18,7 @@ def generate_report(
     transcript: str,
     api_key: str,
     system_prompt: str | None = None,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> str:
     """Generate a structured meeting report from a transcript."""
     client = genai.Client(api_key=api_key)
