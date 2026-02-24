@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  voice-report:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: voice-report:latest
+    # container_name: voice-report-cli
+    env_file:
+      - .env
+    volumes:
+      # Mount current directory to /app to read input audio and write output reports
+      - .:/app
+      # Map cache directories to avoid re-downloading large AI models
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
+    # Uncomment the below block if you have an NVIDIA GPU and want to use it
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  hf_cache:
+  torch_cache:
