@@ -109,11 +109,31 @@ def parse_speaker_map(raw: str) -> dict[str, str]:
             result[key.strip()] = value.strip()
     return result
 
+# State Management
+if "transcript" not in st.session_state:
+    st.session_state.transcript = None
+if "report" not in st.session_state:
+    st.session_state.report = None
+if "current_file" not in st.session_state:
+    st.session_state.current_file = None
+
 # Main area
-uploaded_file = st.file_uploader("Upload Audio File", type=["m4a", "wav", "mp3", "flac", "ogg"])
+uploaded_file = st.file_uploader("Upload Audio or Text File", type=["m4a", "wav", "mp3", "flac", "ogg", "txt"])
 
 if uploaded_file is not None:
-    st.audio(uploaded_file)
+    is_text_input = uploaded_file.name.lower().endswith(".txt")
+    
+    if not is_text_input:
+        st.audio(uploaded_file)
+    else:
+        with st.expander("미리보기 (Uploaded Text)"):
+            st.text(uploaded_file.getvalue().decode("utf-8"))
+    
+    # If the user uploads a new file, reset the state
+    if st.session_state.current_file != uploaded_file.name:
+        st.session_state.transcript = None
+        st.session_state.report = None
+        st.session_state.current_file = uploaded_file.name
     
     if st.button("🚀 변환 시작 (Generate Report)", type="primary"):
         if not gemini_key:
@@ -123,42 +143,46 @@ if uploaded_file is not None:
         # Parse speaker mapping
         speaker_map = parse_speaker_map(speakers_input)
             
-        # Save uploaded file to temp directory
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_audio_path = Path(tmp_file.name)
-            
-        try:
-            validate_audio_file(tmp_audio_path)
-            
-            # 1. Transcribe
-            with st.spinner("음성을 텍스트로 변환하는 중입니다... (모델 크기와 오디오 길이에 따라 몇 분 정도 소요될 수 있습니다)"):
-                transcript_result = transcribe_audio(
-                    audio_path=tmp_audio_path,
-                    model_size=model_size,
-                    language=language,
-                    device=device,
-                    diarize=use_diarize,
-                    hf_token=hf_token,
-                )
-            
-            if not transcript_result.segments:
-                st.warning("오디오에서 음성을 감지하지 못했습니다.")
+        if is_text_input:
+            st.session_state.transcript = uploaded_file.getvalue().decode("utf-8")
+        else:
+            # Save uploaded file to temp directory
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_audio_path = Path(tmp_file.name)
+                
+            try:
+                validate_audio_file(tmp_audio_path)
+                
+                # 1. Transcribe
+                with st.spinner("음성을 텍스트로 변환하는 중입니다... (모델 크기와 오디오 길이에 따라 몇 분 정도 소요될 수 있습니다)"):
+                    transcript_result = transcribe_audio(
+                        audio_path=tmp_audio_path,
+                        model_size=model_size,
+                        language=language,
+                        device=device,
+                        diarize=use_diarize,
+                        hf_token=hf_token,
+                    )
+                
+                if not transcript_result.segments:
+                    st.warning("오디오에서 음성을 감지하지 못했습니다.")
+                    st.stop()
+                    
+                st.session_state.transcript = transcript_result.to_text(speaker_map=speaker_map)
+                
+                # Clean up temp file immediately after STT is done successfully
+                if tmp_audio_path.exists():
+                    tmp_audio_path.unlink()
+                    
+            except Exception as e:
+                st.error(f"오류가 발생했습니다: {str(e)}")
+                if tmp_audio_path.exists():
+                    tmp_audio_path.unlink()
                 st.stop()
                 
-            transcript_text = transcript_result.to_text(speaker_map=speaker_map)
-            
-            st.success("음성 인식 완료!")
-            with st.expander("인식된 텍스트 확인 (Transcript)"):
-                st.text(transcript_text)
-                st.download_button(
-                    label="텍스트 파일 다운로드 (.txt)",
-                    data=transcript_text,
-                    file_name=f"{Path(uploaded_file.name).stem}.txt",
-                    mime="text/plain"
-                )
-                
-            # 2. Generate Report
+        # 2. Generate Report
+        if st.session_state.transcript:
             with st.spinner("AI가 보고서를 작성하고 있습니다..."):
                 system_prompt = None
                 if template_choice == "Custom...":
@@ -169,31 +193,38 @@ if uploaded_file is not None:
                     except FileNotFoundError:
                          system_prompt = None
                          
-                report_md = generate_report(
-                    transcript=transcript_text,
-                    api_key=gemini_key,
-                    system_prompt=system_prompt,
-                    model=gemini_model,
-                )
-                
-            st.success("보고서 생성 완료!")
-            
-            st.markdown("---")
-            st.markdown("### 📝 변환 결과")
-            st.markdown(report_md)
-            
-            st.markdown("---")
+                try:
+                    st.session_state.report = generate_report(
+                        transcript=st.session_state.transcript,
+                        api_key=gemini_key,
+                        system_prompt=system_prompt,
+                        model=gemini_model,
+                    )
+                except Exception as e:
+                    st.error(f"보고서 생성 중 오류가 발생했습니다: {str(e)}")
+
+    # Display results if available in session state
+    if st.session_state.transcript and st.session_state.report:
+        st.success("변환 및 보고서 생성 완료!")
+        
+        with st.expander("인식된 텍스트 확인 (Transcript)"):
+            st.text(st.session_state.transcript)
             st.download_button(
-                label="📥 마크다운 파일 다운로드 (.md)",
-                data=report_md,
-                file_name=f"{Path(uploaded_file.name).stem}.md",
-                mime="text/markdown",
-                type="primary"
+                label="텍스트 파일 다운로드 (.txt)",
+                data=st.session_state.transcript,
+                file_name=f"{Path(uploaded_file.name).stem}.txt",
+                mime="text/plain"
             )
             
-        except Exception as e:
-            st.error(f"오류가 발생했습니다: {str(e)}")
-        finally:
-            # Clean up temp file
-            if tmp_audio_path.exists():
-                tmp_audio_path.unlink()
+        st.markdown("---")
+        st.markdown("### 📝 변환 결과")
+        st.markdown(st.session_state.report)
+        
+        st.markdown("---")
+        st.download_button(
+            label="📥 마크다운 파일 다운로드 (.md)",
+            data=st.session_state.report,
+            file_name=f"{Path(uploaded_file.name).stem}.md",
+            mime="text/markdown",
+            type="primary"
+        )

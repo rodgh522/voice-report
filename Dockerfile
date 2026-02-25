@@ -13,7 +13,7 @@ RUN apt-get update && \
 COPY . .
 
 # Install the application and its dependencies
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -e .
 
 # Cache directories for HuggingFace and PyTorch models
 ENV HF_HOME=/root/.cache/huggingface
