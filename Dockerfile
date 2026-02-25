@@ -20,6 +20,7 @@ ENV HF_HOME=/root/.cache/huggingface
 ENV TORCH_HOME=/root/.cache/torch
 
 # Entrypoint for the CLI
+EXPOSE 8501
 ENTRYPOINT ["voice-report"]
 
 # Default command

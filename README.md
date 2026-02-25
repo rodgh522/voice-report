@@ -2,18 +2,43 @@
 
 회의의 음성 녹음 파일(`.m4a`, `.wav`, `.mp3`)을 구조화된 마크다운 형식의 보고서로 변환해주는 CLI 도구입니다. 이 파이프라인은 화자 분할(Speaker Diarization) 기술이 포함된 WhisperX를 사용하여 로컬에서 음성을 텍스트로 변환(STT)하며, Google Gemini를 활용하여 회의 보고서를 자동으로 생성합니다.
 
-## 🐳 Docker 기반 실행 (권장 - 모든 OS 지원)
+## 🚀 시작하기 (Web UI 버전 - 권장)
 
-Windows, macOS, Linux 등 운영체제와 상관없이 가장 빠르고 쉽게 실행할 수 있는 방법입니다. 별도 의존성 설치 없이 동작합니다.
+가장 쉽고 직관적인 브라우저 기반의 웹 화면에서 모든 작업을 수행할 수 있습니다. 
 
 ### 1. 요구 사항
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop) 설치
-- API 키 설정 (아래 'API 키 설정' 참고)
+- 변환할 오디오 파일 (`.m4a`, `.wav`, `.mp3` 등)
+- (선택) API 키. 별도로 설정하지 않아도 웹 화면 내에서 직접 입력할 수 있습니다.
 
-### 2. 실행 스크립트 사용법
+### 2. 웹 서버 시작하기
 
-내장된 실행 래퍼(wrapper) 스크립트를 통해 로컬 CLI처럼 쉽게 사용할 수 있습니다.
+프로젝트 폴더에서 운영체제에 맞는 런처 스크립트를 더블클릭 하거나 터미널에서 실행하세요:
+
+- **Windows** (가장 쉬운 방법: 탐색기에서 더블클릭):
+  ```cmd
+  .\start-web.bat
+  ```
+- **macOS** (가장 쉬운 방법: Finder에서 더블클릭):
+  - `start-web.command` 파일을 더블클릭하세요.
+  *(권한 오류 발생 시 우클릭 -> 다음으로 열기 -> 터미널(Terminal) 선택)*
+- **Linux** (터미널 사용):
+  ```bash
+  chmod +x start-web.sh
+  ./start-web.sh
+  ```
+
+### 3. 웹 접속
+스크립트가 실행되면 브라우저를 열고 `http://localhost:8501` 에 접속하여 마우스 드래그 앤 드롭으로 사용하세요!
+
+---
+
+## 💻 CLI (터미널) 기반 실행 (기존 방식)
+
+CLI 및 스크립트 기반 동작을 원하신다면 이전과 동일하게 제공되는 래퍼(wrapper) 스크립트를 통해 사용할 수 있습니다.
+
+### CLI 실행 방법
 
 - **macOS / Linux**:
   ```bash
@@ -129,3 +154,30 @@ voice-report convert recording.m4a
 ```bash
 ./voice-report.sh convert meeting.m4a --speakers "SPEAKER_00:요한,SPEAKER_01:사라"
 ```
+
+---
+
+## 💻 요구 사항 및 컴퓨팅 사양 (Hardware Requirements)
+
+Voice Report 파이프라인 중 **LLM 요약(Gemini 2.5 Flash)**은 구글 서버 파워를 빌려 사용하지만, **음성 인식(STT, Whisper `large-v2`)** 및 **화자 분리(pyannote)** 모델은 **사용자의 로컬 기기 리소스**를 직접 활용합니다. 각 모델의 크기가 커서 넉넉한 하드웨어 사양이 필요합니다.
+
+### 🟩 최소 사양 (초기 설정 유지 시)
+- **CPU**: Intel Core i5 (8세대 이상) / Apple M1 기본형
+- **RAM**: **16GB 이상 (절대적 필수)**
+  - Whisper `large-v2`와 pyannote 모델이 Docker 컨테이너 내에서 구동되려면 최고조에서 약 8~12GB의 메모리가 필요합니다. 시스템 메모리가 8GB인 경우 메모리 부족(OOM) 에러로 강제 종료될 확률이 매우 높습니다.
+- **Docker 제한**: Docker Desktop 설정(Settings > Resources)에서 컨테이너 사용 최대 메모리를 **최소 12GB 이상**으로 설정 권장.
+
+### 🟦 권장 사양 (빠른 변환)
+- **CPU**: Intel Core i7 / AMD Ryzen 7 / Apple M2 Pro 이상
+- **RAM**: **32GB 이상**
+- **GPU (선택적 가속)**: 
+  - Windows/Linux 환경인 경우 **VRAM 12GB 이상의 NVIDIA 그래픽 카드** (예: RTX 3060 12GB, RTX 4070 이상)를 강력히 권장합니다.
+  - VRAM이 8GB 이하인 GPU를 사용할 경우 런타임 중 종종 모델 탑재에 실패할 수 있습니다.
+
+### 💡 리소스 점유율을 대폭 낮추고 속도를 올리는 방법
+PC 사양이 낮거나 단순한 용도라면 **웹 인터페이스(Web GUI) 좌측 옵션**을 통해 다음 설정을 변경하세요. 품질 하락 없이 리소스를 획기적으로 아낄 수 있습니다.
+
+1. **Whisper 모델 사이즈 낮추기 (가장 효과적)**
+   - `large-v2` (기본값) ➔ **`small`** 또는 **`base`**로 변경해 보세요. 메모리 사용량을 절반 이하로 줄이고 변환 시간을 최대 5배 이상 앞당깁니다.
+2. **화자 분리(Diarization) 끄기**
+   - 1인 발성 녹음이나 인터뷰 등 화자 식별(`SPEAKER_01` 등)이 크게 중요하지 않다면 **"Enable Speaker Diarization" 체크를 해제**하세요. 메모리 소모가 극적으로 줄어듭니다.

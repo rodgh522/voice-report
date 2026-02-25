@@ -15,6 +15,8 @@ services:
       # Map cache directories to avoid re-downloading large AI models
       - hf_cache:/root/.cache/huggingface
       - torch_cache:/root/.cache/torch
+    ports:
+      - "8501:8501"
     # Uncomment the below block if you have an NVIDIA GPU and want to use it
     # deploy:
     #   resources:

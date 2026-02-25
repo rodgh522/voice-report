@@ -37,6 +37,21 @@ def version():
 
 
 @app.command()
+def web():
+    """Start the Streamlit Web GUI."""
+    import sys
+    from pathlib import Path
+    
+    from streamlit.web import cli as stcli
+    
+    import voice_report.web as web_module
+    
+    web_script_path = str(Path(web_module.__file__).resolve())
+    sys.argv = ["streamlit", "run", web_script_path, "--server.address=0.0.0.0", "--server.port=8501"]
+    sys.exit(stcli.main())
+
+
+@app.command()
 def convert(
     input_file: Annotated[
         Path,
